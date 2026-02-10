@@ -36,19 +36,25 @@ const KEY_MAPPINGS: Record<string, KeyMap> = {
     '-': { lane: 8, visual: 'upper' }, // General fallback for now
 };
 
-export const generateNotes = (text: string, bpm: number, startTime: number = 0, spawnPreTime: number = 2000): Note[] => {
+export const generateNotes = (text: string, bpm: number, startTime: number = 0, spawnPreTime: number = 4000): Note[] => {
     const msPerBeat = 60000 / bpm;
     const notes: Note[] = [];
 
     let currentIndex = 0;
 
     for (const char of text.toLowerCase()) {
+        if (char === ' ') {
+            // Space adds a break in timing but no note
+            currentIndex += 0.5; // Half beat for space
+            continue;
+        }
+
         const map = KEY_MAPPINGS[char];
         if (map) {
             const targetTime = startTime + (currentIndex * msPerBeat);
             notes.push({
                 id: Math.random().toString(36).substring(2, 9),
-                char: char, // Keep original case? Lowercase for matching.
+                char: char,
                 lane: map.lane,
                 spawnTime: targetTime - spawnPreTime,
                 targetTime: targetTime,

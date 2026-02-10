@@ -9,6 +9,8 @@ import { playHitSound, initAudio } from '../utils/audio';
 
 const { JUDGEMENT_LINE_Y, HIT_WINDOW } = GAME_CONSTANTS;
 
+const PRACTICE_TEXT = "the quick brown fox jumps over the lazy dog";
+
 export const GameStage = () => {
     const [gameState, setGameState] = useState<GameState>({
         isPlaying: false,
@@ -39,8 +41,8 @@ export const GameStage = () => {
     // Initialize Game
     const startGame = () => {
         initAudio();
-        const testText = "The quick brown fox jumps over the lazy dog";
-        const initialNotes = generateNotes(testText, 120, 3000, 3000); // BPM 120, Start at 3s
+        // Lower BPM to 40 for much slower pace
+        const initialNotes = generateNotes(PRACTICE_TEXT, 40, 4000, 4000);
 
         setNotes(initialNotes);
         setGameState({
@@ -213,13 +215,36 @@ export const GameStage = () => {
 
             {/* Hit Feedback */}
             {feedback && (
-                <div className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl font-black ${feedback.color} z-50 animate-bounce`}>
+                <div className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black ${feedback.color} z-50 animate-bounce transition-all drop-shadow-lg`}>
                     {feedback.text}
                 </div>
             )}
 
+            {/* Text Progress Display */}
+            {gameState.isPlaying && (
+                <div className="w-full bg-slate-800/50 py-6 border-b border-white/10 flex justify-center items-center">
+                    <div className="text-3xl font-mono tracking-wider flex">
+                        {PRACTICE_TEXT.split('').map((char, i) => {
+                            // Calculate which notes are hit
+                            const hitCount = notes.filter(n => n.hit).length;
+                            const isPast = i < hitCount;
+                            const isCurrent = i === hitCount;
+
+                            return (
+                                <span
+                                    key={i}
+                                    className={`${isPast ? 'text-white/20' : isCurrent ? 'text-cyan-400 border-b-2 border-cyan-400 animate-pulse' : 'text-white'}`}
+                                >
+                                    {char === ' ' ? '\u00A0' : char}
+                                </span>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             {/* Stage Container */}
-            <div className="relative w-full max-w-4xl h-full flex border-x border-slate-700">
+            <div className="relative w-full max-w-5xl h-full flex border-x border-slate-700 shadow-2xl bg-black/20">
 
                 {/* Lanes */}
                 {LANE_CONFIGS.map(config => (

@@ -19,5 +19,5 @@ export const GAME_CONSTANTS = {
         GOOD: 100, // ms
         MISS: 200, // ms
     },
-    SPAWN_PRE_TIME: 2000, // ms before target time to spawn
+    SPAWN_PRE_TIME: 4000, // ms before target time to spawn (Halved speed)
 };
