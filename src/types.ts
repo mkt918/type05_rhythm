@@ -28,3 +28,35 @@ export interface GameState {
     combo: number;
     maxCombo: number;
 }
+
+export type Screen = 'title' | 'game' | 'result' | 'shop';
+export type Rank = 'S' | 'A' | 'B' | 'C' | 'D';
+export type NoteShape = 'circle' | 'square' | 'diamond';
+export type ColorTheme = 'default' | 'neon' | 'pastel';
+export type BgEffect = 'none' | 'particles';
+export type FeedbackStyle = 'default' | 'retro' | 'minimal';
+
+export interface ResultData {
+    score: number;
+    maxScore: number;
+    perfect: number;
+    good: number;
+    ok: number;
+    miss: number;
+    maxCombo: number;
+    rank: Rank;
+    coinsEarned: number;
+}
+
+export interface SkinEquip {
+    noteShape: NoteShape;
+    colorTheme: ColorTheme;
+    bgEffect: BgEffect;
+    feedbackStyle: FeedbackStyle;
+}
+
+export interface PlayerData {
+    coins: number;
+    ownedSkins: string[];
+    equippedSkin: SkinEquip;
+}

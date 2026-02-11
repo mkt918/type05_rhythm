@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { LANE_CONFIGS, GAME_CONSTANTS, WORD_LIST } from '../constants';
-import type { Note, GameState } from '../types';
+import type { Note, GameState, SkinEquip, ResultData } from '../types';
+import { calcRank, calcCoins } from '../utils/rank';
 import { Lane } from './Lane';
 import { Note as NoteComponent } from './Note';
 import { KeyboardLayout } from './KeyboardLayout';
@@ -9,20 +10,22 @@ import { generateNotes } from '../utils/noteGenerator';
 import { playHitSound, initAudio } from '../utils/audio';
 
 const { JUDGEMENT_LINE_Y, HIT_WINDOW } = GAME_CONSTANTS;
-
 const WORD_COUNT = 10;
 
-// ランダムにWORD_COUNT個の単語を選んで曲データを作る
 function buildSong() {
     const shuffled = [...WORD_LIST].sort(() => Math.random() - 0.5);
     const words = shuffled.slice(0, WORD_COUNT);
-    // ローマ字をスペース区切りで連結（noteGeneratorがスペースをビート休符にする）
     const romajiText = words.map(w => w.romaji).join(' ');
     const displayWords = words.map(w => w.display);
     return { romajiText, displayWords };
 }
 
-export const GameStage = () => {
+interface GameStageProps {
+    skin: SkinEquip;
+    onGameEnd: (result: ResultData) => void;
+}
+
+export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
     const [gameState, setGameState] = useState<GameState>({
         isPlaying: false,
         startTime: 0,
@@ -38,9 +41,12 @@ export const GameStage = () => {
     const [displayWords, setDisplayWords] = useState<string[]>([]);
     const [romajiText, setRomajiText] = useState('');
 
+    // 判定カウント
+    const judgeCountRef = useRef({ perfect: 0, good: 0, ok: 0, miss: 0 });
     const notesRef = useRef<Note[]>([]);
     const gameStateRef = useRef(gameState);
     const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const gameEndedRef = useRef(false);
 
     useEffect(() => {
         notesRef.current = notes;
@@ -56,8 +62,28 @@ export const GameStage = () => {
         feedbackTimerRef.current = setTimeout(() => setFeedback(null), 600);
     }, []);
 
+    // 全ノーツ終了チェック
+    const checkGameEnd = useCallback((currentNotes: Note[], currentScore: number, currentMaxCombo: number) => {
+        if (gameEndedRef.current) return;
+        const allDone = currentNotes.length > 0 && currentNotes.every(n => n.hit || n.missed);
+        if (!allDone) return;
+
+        gameEndedRef.current = true;
+        const maxScore = currentNotes.length * 100;
+        const { perfect, good, ok, miss } = judgeCountRef.current;
+        const rank = calcRank(currentScore, maxScore);
+        const coinsEarned = calcCoins(rank);
+
+        // 少し待ってからリザルトへ
+        setTimeout(() => {
+            onGameEnd({ score: currentScore, maxScore, perfect, good, ok, miss, maxCombo: currentMaxCombo, rank, coinsEarned });
+        }, 800);
+    }, [onGameEnd]);
+
     const startGame = () => {
         initAudio();
+        judgeCountRef.current = { perfect: 0, good: 0, ok: 0, miss: 0 };
+        gameEndedRef.current = false;
         const { romajiText: rt, displayWords: dw } = buildSong();
         const initialNotes = generateNotes(rt, 40, 4000, GAME_CONSTANTS.SPAWN_PRE_TIME);
         setRomajiText(rt);
@@ -79,11 +105,7 @@ export const GameStage = () => {
         if (!gs.isPlaying) return;
 
         const currentMs = performance.now() - gs.startTime;
-
-        setGameState(prev => ({
-            ...prev,
-            currentTime: currentMs,
-        }));
+        setGameState(prev => ({ ...prev, currentTime: currentMs }));
 
         const currentNotes = notesRef.current;
         const hasMissed = currentNotes.some(
@@ -93,6 +115,7 @@ export const GameStage = () => {
         if (hasMissed) {
             const updatedNotes = currentNotes.map(note => {
                 if (!note.hit && !note.missed && currentMs > note.targetTime + HIT_WINDOW.MISS) {
+                    judgeCountRef.current.miss++;
                     return { ...note, missed: true };
                 }
                 return note;
@@ -101,9 +124,12 @@ export const GameStage = () => {
             setNotes(updatedNotes);
             showFeedback('MISS', 'text-red-500');
             playHitSound('miss');
-            setGameState(prev => ({ ...prev, combo: 0 }));
+            setGameState(prev => {
+                checkGameEnd(updatedNotes, prev.score, prev.maxCombo);
+                return { ...prev, combo: 0 };
+            });
         }
-    }, [showFeedback]);
+    }, [showFeedback, checkGameEnd]);
 
     useGameLoop(gameLoopCallback, gameState.isPlaying);
 
@@ -115,18 +141,15 @@ export const GameStage = () => {
             }
 
             const key = e.key.toLowerCase();
-
             const laneConfig = LANE_CONFIGS.find(cfg => cfg.keys.includes(key));
             if (!laneConfig) return;
 
-            const laneId = laneConfig.id;
-            setActiveLanes(prev => new Set(prev).add(laneId));
+            setActiveLanes(prev => new Set(prev).add(laneConfig.id));
 
             const currentMs = performance.now() - gameStateRef.current.startTime;
-
             const candidates = notesRef.current.filter(n =>
                 !n.hit && !n.missed &&
-                n.lane === laneId &&
+                n.lane === laneConfig.id &&
                 n.char === key &&
                 Math.abs(currentMs - n.targetTime) <= HIT_WINDOW.MISS
             );
@@ -135,35 +158,34 @@ export const GameStage = () => {
                 const target = candidates.reduce((prev, curr) =>
                     Math.abs(currentMs - prev.targetTime) < Math.abs(currentMs - curr.targetTime) ? prev : curr
                 );
-
                 const diff = Math.abs(currentMs - target.targetTime);
+
                 let judgement: string;
                 let scoreAdd: number;
-
                 if (diff <= HIT_WINDOW.PERFECT) {
-                    judgement = 'PERFECT';
-                    scoreAdd = 100;
+                    judgement = 'PERFECT'; scoreAdd = 100;
+                    judgeCountRef.current.perfect++;
                 } else if (diff <= HIT_WINDOW.GOOD) {
-                    judgement = 'GOOD';
-                    scoreAdd = 50;
+                    judgement = 'GOOD'; scoreAdd = 50;
+                    judgeCountRef.current.good++;
                 } else {
-                    judgement = 'OK';
-                    scoreAdd = 10;
+                    judgement = 'OK'; scoreAdd = 10;
+                    judgeCountRef.current.ok++;
                 }
 
                 const newNotes = notesRef.current.map(n => n.id === target.id ? { ...n, hit: true } : n);
                 notesRef.current = newNotes;
                 setNotes(newNotes);
-
                 playHitSound('perfect');
                 showFeedback(judgement, judgement === 'PERFECT' ? 'text-yellow-400' : 'text-blue-400');
 
-                setGameState(prev => ({
-                    ...prev,
-                    score: prev.score + scoreAdd,
-                    combo: prev.combo + 1,
-                    maxCombo: Math.max(prev.maxCombo, prev.combo + 1)
-                }));
+                setGameState(prev => {
+                    const newScore = prev.score + scoreAdd;
+                    const newCombo = prev.combo + 1;
+                    const newMaxCombo = Math.max(prev.maxCombo, newCombo);
+                    checkGameEnd(newNotes, newScore, newMaxCombo);
+                    return { ...prev, score: newScore, combo: newCombo, maxCombo: newMaxCombo };
+                });
             }
         };
 
@@ -187,24 +209,53 @@ export const GameStage = () => {
         };
     }, []);
 
-    // 処理済みノーツ数（スペースはノーツを生成しないので純粋な文字数）
     const hitCount = notes.filter(n => n.hit || n.missed).length;
-
-    // 各単語のノーツ開始インデックス（スペース抜き累積）
     const wordRomajiList = romajiText ? romajiText.split(' ') : [];
     let noteOffset = 0;
     const wordStates = wordRomajiList.map((word) => {
         const len = word.length;
         const start = noteOffset;
-        noteOffset += len; // スペースはノーツなしなので足さない
+        noteOffset += len;
         const wordHitCount = Math.max(0, Math.min(hitCount - start, len));
         const isDone = wordHitCount >= len;
         const isCurrent = !isDone && hitCount >= start;
         return { isDone, isCurrent, wordHitCount, len };
     });
 
+    // スキン: フィードバック文字スタイル
+    const feedbackClass = (() => {
+        switch (skin.feedbackStyle) {
+            case 'retro':   return 'font-mono text-4xl border-2 border-white px-3 py-1';
+            case 'minimal': return 'text-3xl font-light opacity-70';
+            default:        return 'text-5xl font-black drop-shadow-lg';
+        }
+    })();
+
+    // スキン: 背景エフェクト
+    const bgClass = skin.bgEffect === 'particles'
+        ? 'bg-slate-900 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-900 to-slate-950'
+        : 'bg-slate-900';
+
     return (
-        <div className="w-full h-screen bg-slate-900 flex flex-col items-center relative overflow-hidden">
+        <div className={`w-full h-screen ${bgClass} flex flex-col items-center relative overflow-hidden`}>
+
+            {/* パーティクル背景 */}
+            {skin.bgEffect === 'particles' && (
+                <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+                    {[...Array(20)].map((_, i) => (
+                        <div
+                            key={i}
+                            className="absolute w-1 h-1 bg-white/20 rounded-full animate-pulse"
+                            style={{
+                                left: `${(i * 37 + 13) % 100}%`,
+                                top: `${(i * 53 + 7) % 100}%`,
+                                animationDelay: `${(i * 0.3) % 3}s`,
+                                animationDuration: `${2 + (i % 3)}s`,
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
 
             {/* UI Overlay */}
             <div className="absolute top-4 left-4 text-white z-50">
@@ -221,34 +272,25 @@ export const GameStage = () => {
 
             {/* Hit Feedback */}
             {feedback && (
-                <div className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black ${feedback.color} z-50 drop-shadow-lg pointer-events-none`}>
+                <div className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 ${feedback.color} z-50 pointer-events-none ${feedbackClass}`}>
                     {feedback.text}
                 </div>
             )}
 
             {/* Text Progress Display */}
             {gameState.isPlaying && (
-                <div className="w-full bg-slate-800/50 py-4 border-b border-white/10 flex flex-col items-center gap-1">
-                    {/* 日本語表示 */}
-                    <div className="flex gap-4">
+                <div className="w-full bg-slate-800/50 py-4 border-b border-white/10 flex flex-col items-center gap-1 z-10">
+                    <div className="flex gap-4 flex-wrap justify-center">
                         {displayWords.map((word, wi) => {
                             const ws = wordStates[wi];
                             return (
-                                <span
-                                    key={wi}
-                                    className={`text-2xl font-bold transition-colors ${
-                                        ws?.isDone ? 'text-white/25' :
-                                        ws?.isCurrent ? 'text-cyan-300' :
-                                        'text-white/70'
-                                    }`}
-                                >
-                                    {word}
-                                </span>
+                                <span key={wi} className={`text-2xl font-bold transition-colors ${
+                                    ws?.isDone ? 'text-white/25' : ws?.isCurrent ? 'text-cyan-300' : 'text-white/70'
+                                }`}>{word}</span>
                             );
                         })}
                     </div>
-                    {/* ローマ字表示 */}
-                    <div className="flex gap-4">
+                    <div className="flex gap-4 flex-wrap justify-center">
                         {romajiText.split(' ').map((word, wi) => {
                             const ws = wordStates[wi];
                             return (
@@ -257,18 +299,12 @@ export const GameStage = () => {
                                         const charDone = ws ? ci < ws.wordHitCount : false;
                                         const charCurrent = ws?.isCurrent && ci === ws.wordHitCount;
                                         return (
-                                            <span
-                                                key={ci}
-                                                className={`${
-                                                    charDone ? 'text-white/25' :
-                                                    charCurrent ? 'text-cyan-400 border-b border-cyan-400' :
-                                                    ws?.isCurrent ? 'text-white/60' :
-                                                    ws?.isDone ? 'text-white/20' :
-                                                    'text-white/40'
-                                                }`}
-                                            >
-                                                {char}
-                                            </span>
+                                            <span key={ci} className={`${
+                                                charDone ? 'text-white/25' :
+                                                charCurrent ? 'text-cyan-400 border-b border-cyan-400' :
+                                                ws?.isCurrent ? 'text-white/60' :
+                                                ws?.isDone ? 'text-white/20' : 'text-white/40'
+                                            }`}>{char}</span>
                                         );
                                     })}
                                 </div>
@@ -279,33 +315,20 @@ export const GameStage = () => {
             )}
 
             {/* Stage Container */}
-            <div className="relative w-full max-w-5xl h-full flex flex-col border-x border-slate-700 shadow-2xl bg-black/20">
-
+            <div className="relative w-full max-w-5xl h-full flex flex-col border-x border-slate-700 shadow-2xl bg-black/20 z-10">
                 <div className="relative flex-1 flex">
-                    {/* Lanes */}
                     {LANE_CONFIGS.map(config => (
-                        <Lane
-                            key={config.id}
-                            config={config}
-                            isActive={activeLanes.has(config.id)}
-                        />
+                        <Lane key={config.id} config={config} isActive={activeLanes.has(config.id)} />
                     ))}
-
-                    {/* Judgement Line */}
                     <div
                         className="absolute w-full h-1 bg-cyan-400 shadow-[0_0_10px_cyan] pointer-events-none"
                         style={{ top: `${JUDGEMENT_LINE_Y}%` }}
-                    ></div>
-
-                    {/* Notes */}
+                    />
                     {notes.map(note => {
                         if (note.hit || note.missed) return null;
-
                         const timeProgress = (gameState.currentTime - note.spawnTime) / (note.targetTime - note.spawnTime);
                         const topPercent = timeProgress * JUDGEMENT_LINE_Y;
-
                         if (timeProgress < 0 || timeProgress > 1.2) return null;
-
                         const laneConfig = LANE_CONFIGS.find(l => l.id === note.lane);
                         return (
                             <NoteComponent
@@ -314,12 +337,12 @@ export const GameStage = () => {
                                 y={topPercent}
                                 colorName={laneConfig?.color || 'red'}
                                 laneIndex={note.lane - 1}
+                                shape={skin.noteShape}
+                                colorTheme={skin.colorTheme}
                             />
                         );
                     })}
                 </div>
-
-                {/* Keyboard Layout */}
                 <div className="p-4 bg-slate-900 border-t border-white/10">
                     <KeyboardLayout
                         activeLanes={activeLanes}
