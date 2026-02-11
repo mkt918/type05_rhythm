@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { LANE_CONFIGS, GAME_CONSTANTS } from '../constants';
 import type { Note, GameState } from '../types';
 import { Lane } from './Lane';
@@ -26,9 +26,9 @@ export const GameStage = () => {
     const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
     const [feedback, setFeedback] = useState<{ text: string, color: string } | null>(null);
 
-    // Use Ref for notes to access latest state in event listeners/loop without re-render dependency issues
     const notesRef = useRef<Note[]>([]);
-    const gameStateRef = useRef(gameState); // Keep track of latest state for input handler
+    const gameStateRef = useRef(gameState);
+    const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     useEffect(() => {
         notesRef.current = notes;
@@ -38,13 +38,15 @@ export const GameStage = () => {
         gameStateRef.current = gameState;
     }, [gameState]);
 
+    const showFeedback = useCallback((text: string, color: string) => {
+        if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+        setFeedback({ text, color });
+        feedbackTimerRef.current = setTimeout(() => setFeedback(null), 600);
+    }, []);
 
-    // Initialize Game
     const startGame = () => {
         initAudio();
-        // Lower BPM to 40 for much slower pace
         const initialNotes = generateNotes(PRACTICE_TEXT, 40, 4000, 4000);
-
         setNotes(initialNotes);
         setGameState({
             isPlaying: true,
@@ -57,37 +59,38 @@ export const GameStage = () => {
         setFeedback(null);
     };
 
-    // Game Loop
-    useGameLoop((_) => {
-        if (!gameState.isPlaying) return;
+    const gameLoopCallback = useCallback((_deltaTime: number) => {
+        const gs = gameStateRef.current;
+        if (!gs.isPlaying) return;
+
+        const currentMs = performance.now() - gs.startTime;
 
         setGameState(prev => ({
             ...prev,
-            currentTime: performance.now() - prev.startTime
+            currentTime: currentMs,
         }));
 
-        // Miss detection logic can go here (optimization: limit frequency)
-        const currentMs = performance.now() - gameState.startTime;
+        const currentNotes = notesRef.current;
+        const hasMissed = currentNotes.some(
+            note => !note.hit && !note.missed && currentMs > note.targetTime + HIT_WINDOW.MISS
+        );
 
-        // Check for missed notes
-        let missedUpdate = false;
-        const updatedNotes = notesRef.current.map(note => {
-            if (!note.hit && !note.missed && currentMs > note.targetTime + HIT_WINDOW.MISS) {
-                missedUpdate = true;
-                setFeedback({ text: 'MISS', color: 'text-red-500' });
-                playHitSound('miss');
-                // Reset combo
-                setGameState(prev => ({ ...prev, combo: 0 }));
-                return { ...note, missed: true };
-            }
-            return note;
-        });
-
-        if (missedUpdate) {
+        if (hasMissed) {
+            const updatedNotes = currentNotes.map(note => {
+                if (!note.hit && !note.missed && currentMs > note.targetTime + HIT_WINDOW.MISS) {
+                    return { ...note, missed: true };
+                }
+                return note;
+            });
+            notesRef.current = updatedNotes;
             setNotes(updatedNotes);
+            showFeedback('MISS', 'text-red-500');
+            playHitSound('miss');
+            setGameState(prev => ({ ...prev, combo: 0 }));
         }
+    }, [showFeedback]);
 
-    }, gameState.isPlaying);
+    useGameLoop(gameLoopCallback, gameState.isPlaying);
 
 
     // Input Handling
@@ -100,7 +103,6 @@ export const GameStage = () => {
 
             const key = e.key.toLowerCase();
 
-            // Find which lane this key belongs to
             const laneConfig = LANE_CONFIGS.find(cfg => cfg.keys.includes(key));
             if (!laneConfig) return;
 
@@ -109,35 +111,21 @@ export const GameStage = () => {
 
             const currentMs = performance.now() - gameStateRef.current.startTime;
 
-            // Find hit target:
-            // 1. Same Lane
-            // 2. Not hit/missed
-            // 3. Within window
-            // 4. Closest to judgement line (lowest absolute diff)
-
-            // Note: We might want to check exact key match or just lane match?
-            // Spec says: "Input: keydown event... corresponding to lane"
-            // "Notes have 'type specific character'"
-            // Ideally we check if the key matches the note's character.
-
             const candidates = notesRef.current.filter(n =>
                 !n.hit && !n.missed &&
                 n.lane === laneId &&
-                // Strict key check? Or just Rhythm check?
-                // Let's enforce Correct Key for typing practice!
                 n.char === key &&
                 Math.abs(currentMs - n.targetTime) <= HIT_WINDOW.MISS
             );
 
             if (candidates.length > 0) {
-                // Find closest
                 const target = candidates.reduce((prev, curr) =>
                     Math.abs(currentMs - prev.targetTime) < Math.abs(currentMs - curr.targetTime) ? prev : curr
                 );
 
                 const diff = Math.abs(currentMs - target.targetTime);
-                let judgement = 'MISS';
-                let scoreAdd = 0;
+                let judgement: string;
+                let scoreAdd: number;
 
                 if (diff <= HIT_WINDOW.PERFECT) {
                     judgement = 'PERFECT';
@@ -146,22 +134,16 @@ export const GameStage = () => {
                     judgement = 'GOOD';
                     scoreAdd = 50;
                 } else {
-                    // Inside window but > good? Treated as Good or Miss? 
-                    // Logic above said <= MISS is candidate.
-                    // Let's say it's OK/BAD or just GOOD with low score.
                     judgement = 'OK';
                     scoreAdd = 10;
                 }
 
-                // Process Hit
                 const newNotes = notesRef.current.map(n => n.id === target.id ? { ...n, hit: true } : n);
+                notesRef.current = newNotes;
                 setNotes(newNotes);
 
                 playHitSound('perfect');
-                setFeedback({
-                    text: judgement,
-                    color: judgement === 'PERFECT' ? 'text-yellow-400' : 'text-blue-400'
-                });
+                showFeedback(judgement, judgement === 'PERFECT' ? 'text-yellow-400' : 'text-blue-400');
 
                 setGameState(prev => ({
                     ...prev,
@@ -169,12 +151,6 @@ export const GameStage = () => {
                     combo: prev.combo + 1,
                     maxCombo: Math.max(prev.maxCombo, prev.combo + 1)
                 }));
-
-            } else {
-                // Wrong key or timing -> Miss penalty?
-                // For rhythm games, usually ghost tapping is allowed or specialized.
-                // For typing, maybe penalize errors? 
-                // MVP: Do nothing for empty taps.
             }
         };
 
@@ -216,7 +192,7 @@ export const GameStage = () => {
 
             {/* Hit Feedback */}
             {feedback && (
-                <div className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black ${feedback.color} z-50 animate-bounce transition-all drop-shadow-lg`}>
+                <div className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black ${feedback.color} z-50 drop-shadow-lg pointer-events-none`}>
                     {feedback.text}
                 </div>
             )}
@@ -257,56 +233,20 @@ export const GameStage = () => {
                         />
                     ))}
 
-                    {/* Global Judgement Line (Visual) */}
+                    {/* Judgement Line */}
                     <div
-                        className="absolute w-full h-1 bg-cyan-400 shadow-[0_0_10px_cyan]"
+                        className="absolute w-full h-1 bg-cyan-400 shadow-[0_0_10px_cyan] pointer-events-none"
                         style={{ top: `${JUDGEMENT_LINE_Y}%` }}
                     ></div>
 
                     {/* Notes */}
                     {notes.map(note => {
-                        if (note.hit || note.missed) return null; // Don't render processed notes
-
-                        // Calculate Y position
-                        // Target Time corresponds to JUDGEMENT_LINE_Y (e.g. 80%)
-                        // We need to map time to pixels/percentage.
-                        // Let's say top (0%) is (TargetTime - SPAWN_TIME)
-                        // Actually, let's use pixels for smoother movement.
-
-                        /*
-                          Position calculation:
-                          0 at SpawnTime
-                          JudgementY at TargetTime
-                          
-                          Distance = Speed * (CurrentTime - SpawnTime)
-                          
-                          Wait, if we defined speed and position:
-                          Let's standardize: Judgement Line is at Y=500px (arbitrary).
-                          TargetTime is when Note reaches 500px.
-                          
-                          Y = (TargetTime - CurrentTime) * Speed * -1 + JudgementLine
-                          Y = JudgementLine - (TargetTime - CurrentTime) * Speed
-                          
-                          At CurrentTime = TargetTime, Y = JudgementLine.
-                          At CurrentTime = TargetTime - 1000, Y = JudgementLine - 1000*Speed.
-                        */
-
-                        // Let's use percentage height for responsiveness? No, pixels are easier for game logic.
-                        // We can use style={{ top: '80%' ... }} logic.
-
-                        // Let's try direct percentage based on time map?
-                        // Spawn at T-2000. Hit at T.
-                        // Current T goes from T-2000 to T.
-                        // Progress = (Current - Spawn) / (Hit - Spawn)
-                        // Y = Progress * JudgementY
+                        if (note.hit || note.missed) return null;
 
                         const timeProgress = (gameState.currentTime - note.spawnTime) / (note.targetTime - note.spawnTime);
                         const topPercent = timeProgress * JUDGEMENT_LINE_Y;
 
-                        // Note: If speed is constant, spawnTime is dynamically set based on that speed.
-                        // note.spawnTime = note.targetTime - (Distance / Speed)
-
-                        if (timeProgress < 0 || timeProgress > 1.2) return null; // Out of view
+                        if (timeProgress < 0 || timeProgress > 1.2) return null;
 
                         return (
                             <NoteComponent
@@ -319,7 +259,7 @@ export const GameStage = () => {
                     })}
                 </div>
 
-                {/* Keyboard Layout at the bottom */}
+                {/* Keyboard Layout */}
                 <div className="p-4 bg-slate-900 border-t border-white/10">
                     <KeyboardLayout
                         activeLanes={activeLanes}
