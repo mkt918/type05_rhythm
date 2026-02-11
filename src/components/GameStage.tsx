@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { LANE_CONFIGS, GAME_CONSTANTS } from '../constants';
+import { LANE_CONFIGS, GAME_CONSTANTS, WORD_LIST } from '../constants';
 import type { Note, GameState } from '../types';
 import { Lane } from './Lane';
 import { Note as NoteComponent } from './Note';
@@ -10,7 +10,17 @@ import { playHitSound, initAudio } from '../utils/audio';
 
 const { JUDGEMENT_LINE_Y, HIT_WINDOW } = GAME_CONSTANTS;
 
-const PRACTICE_TEXT = "the quick brown fox jumps over the lazy dog";
+const WORD_COUNT = 10;
+
+// ランダムにWORD_COUNT個の単語を選んで曲データを作る
+function buildSong() {
+    const shuffled = [...WORD_LIST].sort(() => Math.random() - 0.5);
+    const words = shuffled.slice(0, WORD_COUNT);
+    // ローマ字をスペース区切りで連結（noteGeneratorがスペースをビート休符にする）
+    const romajiText = words.map(w => w.romaji).join(' ');
+    const displayWords = words.map(w => w.display);
+    return { romajiText, displayWords };
+}
 
 export const GameStage = () => {
     const [gameState, setGameState] = useState<GameState>({
@@ -25,6 +35,8 @@ export const GameStage = () => {
     const [notes, setNotes] = useState<Note[]>([]);
     const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
     const [feedback, setFeedback] = useState<{ text: string, color: string } | null>(null);
+    const [displayWords, setDisplayWords] = useState<string[]>([]);
+    const [romajiText, setRomajiText] = useState('');
 
     const notesRef = useRef<Note[]>([]);
     const gameStateRef = useRef(gameState);
@@ -46,7 +58,10 @@ export const GameStage = () => {
 
     const startGame = () => {
         initAudio();
-        const initialNotes = generateNotes(PRACTICE_TEXT, 40, 4000, 4000);
+        const { romajiText: rt, displayWords: dw } = buildSong();
+        const initialNotes = generateNotes(rt, 40, 4000, 4000);
+        setRomajiText(rt);
+        setDisplayWords(dw);
         setNotes(initialNotes);
         setGameState({
             isPlaying: true,
@@ -92,8 +107,6 @@ export const GameStage = () => {
 
     useGameLoop(gameLoopCallback, gameState.isPlaying);
 
-
-    // Input Handling
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!gameStateRef.current.isPlaying) {
@@ -174,6 +187,24 @@ export const GameStage = () => {
         };
     }, []);
 
+    // 現在何文字目まで処理済みか（ローマ字ベース）
+    const hitCount = notes.filter(n => n.hit || n.missed).length;
+
+    // 各単語の開始インデックスを計算（ローマ字のスペース区切り）
+    const wordRomajiLengths = romajiText
+        ? romajiText.split(' ').map(w => w.length)
+        : [];
+    let charOffset = 0;
+    const wordStates = wordRomajiLengths.map((len) => {
+        const start = charOffset;
+        const end = charOffset + len;
+        charOffset = end + 1; // +1 for space (which is skipped in notes)
+        const wordHitCount = Math.max(0, Math.min(hitCount - start, len));
+        const isDone = wordHitCount >= len;
+        const isCurrent = !isDone && hitCount >= start;
+        return { isDone, isCurrent, wordHitCount, len };
+    });
+
     return (
         <div className="w-full h-screen bg-slate-900 flex flex-col items-center relative overflow-hidden">
 
@@ -199,21 +230,50 @@ export const GameStage = () => {
 
             {/* Text Progress Display */}
             {gameState.isPlaying && (
-                <div className="w-full bg-slate-800/50 py-6 border-b border-white/10 flex justify-center items-center">
-                    <div className="text-3xl font-mono tracking-wider flex">
-                        {PRACTICE_TEXT.split('').map((char, i) => {
-                            // Calculate which notes are hit
-                            const hitCount = notes.filter(n => n.hit || n.missed).length;
-                            const isPast = i < hitCount;
-                            const isCurrent = i === hitCount;
-
+                <div className="w-full bg-slate-800/50 py-4 border-b border-white/10 flex flex-col items-center gap-1">
+                    {/* 日本語表示 */}
+                    <div className="flex gap-4">
+                        {displayWords.map((word, wi) => {
+                            const ws = wordStates[wi];
                             return (
                                 <span
-                                    key={i}
-                                    className={`${isPast ? 'text-white/20' : isCurrent ? 'text-cyan-400 border-b-2 border-cyan-400 animate-pulse' : 'text-white'}`}
+                                    key={wi}
+                                    className={`text-2xl font-bold transition-colors ${
+                                        ws?.isDone ? 'text-white/25' :
+                                        ws?.isCurrent ? 'text-cyan-300' :
+                                        'text-white/70'
+                                    }`}
                                 >
-                                    {char === ' ' ? '\u00A0' : char}
+                                    {word}
                                 </span>
+                            );
+                        })}
+                    </div>
+                    {/* ローマ字表示 */}
+                    <div className="flex gap-4">
+                        {romajiText.split(' ').map((word, wi) => {
+                            const ws = wordStates[wi];
+                            return (
+                                <div key={wi} className="font-mono text-sm tracking-wider flex">
+                                    {word.split('').map((char, ci) => {
+                                        const charDone = ws ? ci < ws.wordHitCount : false;
+                                        const charCurrent = ws?.isCurrent && ci === ws.wordHitCount;
+                                        return (
+                                            <span
+                                                key={ci}
+                                                className={`${
+                                                    charDone ? 'text-white/25' :
+                                                    charCurrent ? 'text-cyan-400 border-b border-cyan-400' :
+                                                    ws?.isCurrent ? 'text-white/60' :
+                                                    ws?.isDone ? 'text-white/20' :
+                                                    'text-white/40'
+                                                }`}
+                                            >
+                                                {char}
+                                            </span>
+                                        );
+                                    })}
+                                </div>
                             );
                         })}
                     </div>
@@ -248,12 +308,14 @@ export const GameStage = () => {
 
                         if (timeProgress < 0 || timeProgress > 1.2) return null;
 
+                        const laneConfig = LANE_CONFIGS.find(l => l.id === note.lane);
                         return (
                             <NoteComponent
                                 key={note.id}
                                 note={note}
                                 y={topPercent}
-                                colorName={LANE_CONFIGS.find(l => l.id === note.lane)?.color || 'red'}
+                                colorName={laneConfig?.color || 'red'}
+                                laneIndex={note.lane - 1}
                             />
                         );
                     })}

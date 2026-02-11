@@ -11,6 +11,30 @@ export const LANE_CONFIGS: LaneConfig[] = [
     { id: 8, finger: 'Right Pinky', color: 'fuchsia', keys: ['p', ';', '/'] },
 ];
 
+// 日本語単語リスト（表示用の日本語とローマ字入力のペア）
+export const WORD_LIST: { display: string; romaji: string }[] = [
+    { display: 'そら', romaji: 'sora' },
+    { display: 'くも', romaji: 'kumo' },
+    { display: 'かぜ', romaji: 'kaze' },
+    { display: 'うみ', romaji: 'umi' },
+    { display: 'やま', romaji: 'yama' },
+    { display: 'はな', romaji: 'hana' },
+    { display: 'ひかり', romaji: 'hikari' },
+    { display: 'つき', romaji: 'tuki' },
+    { display: 'ほし', romaji: 'hosi' },
+    { display: 'かわ', romaji: 'kawa' },
+    { display: 'もり', romaji: 'mori' },
+    { display: 'ゆき', romaji: 'yuki' },
+    { display: 'あめ', romaji: 'ame' },
+    { display: 'たいよう', romaji: 'taiyou' },
+    { display: 'こころ', romaji: 'kokoro' },
+    { display: 'ことば', romaji: 'kotoba' },
+    { display: 'さくら', romaji: 'sakura' },
+    { display: 'あさひ', romaji: 'asahi' },
+    { display: 'なみ', romaji: 'nami' },
+    { display: 'みどり', romaji: 'midori' },
+];
+
 export const GAME_CONSTANTS = {
     JUDGEMENT_LINE_Y: 80, // % from top
     NOTE_SPEED: 0.5, // px/ms
