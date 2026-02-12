@@ -18,6 +18,8 @@ export interface Note {
     hit: boolean;
     visualType: VisualType;
     missed?: boolean;
+    wordId?: string; // ID of the word this note belongs to
+    wordIndex?: number; // Index of the character within the word
 }
 
 export interface GameState {

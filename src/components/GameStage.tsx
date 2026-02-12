@@ -41,6 +41,8 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
     const [displayWords, setDisplayWords] = useState<string[]>([]);
     const [romajiText, setRomajiText] = useState('');
 
+    const [hasBomb, setHasBomb] = useState(true);
+
     // 判定カウント
     const judgeCountRef = useRef({ perfect: 0, good: 0, ok: 0, miss: 0 });
     const notesRef = useRef<Note[]>([]);
@@ -84,6 +86,7 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
         initAudio();
         judgeCountRef.current = { perfect: 0, good: 0, ok: 0, miss: 0 };
         gameEndedRef.current = false;
+        setHasBomb(true);
         const { romajiText: rt, displayWords: dw } = buildSong();
         const initialNotes = generateNotes(rt, 40, 4000, GAME_CONSTANTS.SPAWN_PRE_TIME);
         setRomajiText(rt);
@@ -140,6 +143,41 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
                 return;
             }
 
+            // Bomb Trigger
+            if (e.code === 'Space') {
+                setHasBomb(prev => {
+                    if (prev) {
+                        const currentNotes = notesRef.current;
+                        const activeNotes = currentNotes.filter(n => !n.hit && !n.missed);
+                        const hitCount = activeNotes.length;
+
+                        if (hitCount > 0) {
+                            const newNotes = currentNotes.map(n =>
+                                (!n.hit && !n.missed) ? { ...n, hit: true } : n
+                            );
+                            notesRef.current = newNotes;
+                            setNotes(newNotes);
+                            playHitSound('perfect');
+                            showFeedback('FULL BURST', 'text-yellow-300');
+
+                            judgeCountRef.current.perfect += hitCount;
+
+                            setGameState(state => {
+                                const scoreAdd = hitCount * 100;
+                                const newScore = state.score + scoreAdd;
+                                const newCombo = state.combo + hitCount;
+                                const newMaxCombo = Math.max(state.maxCombo, newCombo);
+                                checkGameEnd(newNotes, newScore, newMaxCombo);
+                                return { ...state, score: newScore, combo: newCombo, maxCombo: newMaxCombo };
+                            });
+                        }
+                        return false;
+                    }
+                    return prev;
+                });
+                return;
+            }
+
             const key = e.key.toLowerCase();
             const laneConfig = LANE_CONFIGS.find(cfg => cfg.keys.includes(key));
             if (!laneConfig) return;
@@ -147,12 +185,24 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
             setActiveLanes(prev => new Set(prev).add(laneConfig.id));
 
             const currentMs = performance.now() - gameStateRef.current.startTime;
-            const candidates = notesRef.current.filter(n =>
-                !n.hit && !n.missed &&
-                n.lane === laneConfig.id &&
-                n.char === key &&
-                Math.abs(currentMs - n.targetTime) <= HIT_WINDOW.MISS
-            );
+            const candidates = notesRef.current.filter(n => {
+                if (n.hit || n.missed) return false;
+                if (n.lane !== laneConfig.id) return false;
+                if (n.char !== key) return false;
+                if (Math.abs(currentMs - n.targetTime) > HIT_WINDOW.MISS) return false;
+
+                // Sequential Check
+                if (n.wordId !== undefined && n.wordIndex !== undefined) {
+                    const wordNotes = notesRef.current.filter(wn =>
+                        wn.wordId === n.wordId && !wn.hit && !wn.missed
+                    );
+                    if (wordNotes.length === 0) return true;
+                    // Strict strict sequence: must be the smallest index available
+                    const minIndex = Math.min(...wordNotes.map(wn => wn.wordIndex!));
+                    return n.wordIndex === minIndex;
+                }
+                return true;
+            });
 
             if (candidates.length > 0) {
                 const target = candidates.reduce((prev, curr) =>
@@ -225,9 +275,9 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
     // スキン: フィードバック文字スタイル
     const feedbackClass = (() => {
         switch (skin.feedbackStyle) {
-            case 'retro':   return 'font-mono text-4xl border-2 border-white px-3 py-1';
+            case 'retro': return 'font-mono text-4xl border-2 border-white px-3 py-1';
             case 'minimal': return 'text-3xl font-light opacity-70';
-            default:        return 'text-5xl font-black drop-shadow-lg';
+            default: return 'text-5xl font-black drop-shadow-lg font-mono tracking-widest';
         }
     })();
 
@@ -259,14 +309,25 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
 
             {/* UI Overlay */}
             <div className="absolute top-4 left-4 text-white z-50">
-                <div className="text-xl font-bold">SCORE: {gameState.score}</div>
-                <div className="text-xl font-bold">COMBO: {gameState.combo}</div>
+                <div className="text-xl font-bold font-mono">SCORE: {gameState.score.toString().padStart(6, '0')}</div>
+                <div className="text-xl font-bold font-mono">COMBO: {gameState.combo}</div>
+            </div>
+
+            {/* Bomb Indicator */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+                <div className={`text-sm font-bold ${hasBomb ? 'text-white' : 'text-gray-500'}`}>BOMB [SPACE]</div>
+                <div className={`w-8 h-8 rounded border-2 flex items-center justify-center transition-colors ${hasBomb
+                    ? 'bg-red-600 border-red-400 shadow-[0_0_10px_red] animate-pulse'
+                    : 'bg-gray-800 border-gray-600'
+                    }`}>
+                    <div className={`w-4 h-4 rounded-full ${hasBomb ? 'bg-white' : 'bg-gray-600'}`} />
+                </div>
             </div>
 
             {!gameState.isPlaying && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white z-50 text-center">
-                    <h1 className="text-4xl font-bold mb-4">Rhythm Typer</h1>
-                    <p className="animate-pulse">Press SPACE to Start</p>
+                    <h1 className="text-6xl font-black mb-4 tracking-tighter text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.5)]">TYPE INVADER</h1>
+                    <p className="animate-pulse font-mono text-xl">PRESS SPACE TO START</p>
                 </div>
             )}
 
@@ -284,9 +345,8 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
                         {displayWords.map((word, wi) => {
                             const ws = wordStates[wi];
                             return (
-                                <span key={wi} className={`text-2xl font-bold transition-colors ${
-                                    ws?.isDone ? 'text-white/25' : ws?.isCurrent ? 'text-cyan-300' : 'text-white/70'
-                                }`}>{word}</span>
+                                <span key={wi} className={`text-2xl font-bold transition-colors ${ws?.isDone ? 'text-white/25' : ws?.isCurrent ? 'text-cyan-300' : 'text-white/70'
+                                    }`}>{word}</span>
                             );
                         })}
                     </div>
@@ -299,12 +359,11 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
                                         const charDone = ws ? ci < ws.wordHitCount : false;
                                         const charCurrent = ws?.isCurrent && ci === ws.wordHitCount;
                                         return (
-                                            <span key={ci} className={`${
-                                                charDone ? 'text-white/25' :
+                                            <span key={ci} className={`${charDone ? 'text-white/25' :
                                                 charCurrent ? 'text-cyan-400 border-b border-cyan-400' :
-                                                ws?.isCurrent ? 'text-white/60' :
-                                                ws?.isDone ? 'text-white/20' : 'text-white/40'
-                                            }`}>{char}</span>
+                                                    ws?.isCurrent ? 'text-white/60' :
+                                                        ws?.isDone ? 'text-white/20' : 'text-white/40'
+                                                }`}>{char}</span>
                                         );
                                     })}
                                 </div>
@@ -337,7 +396,6 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
                                 y={topPercent}
                                 colorName={laneConfig?.color || 'red'}
                                 laneIndex={note.lane - 1}
-                                shape={skin.noteShape}
                                 colorTheme={skin.colorTheme}
                             />
                         );

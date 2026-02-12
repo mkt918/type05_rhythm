@@ -41,28 +41,35 @@ export const generateNotes = (text: string, bpm: number, startTime: number = 0, 
     const notes: Note[] = [];
 
     let currentIndex = 0;
+    const words = text.split(' ');
 
-    for (const char of text.toLowerCase()) {
-        if (char === ' ') {
-            // Space adds a break in timing but no note
-            currentIndex += 0.5; // Half beat for space
-            continue;
-        }
+    for (const word of words) {
+        if (!word) continue;
 
-        const map = KEY_MAPPINGS[char];
-        if (map) {
-            const targetTime = startTime + (currentIndex * msPerBeat);
-            notes.push({
-                id: Math.random().toString(36).substring(2, 9),
-                char: char,
-                lane: map.lane,
-                spawnTime: targetTime - spawnPreTime,
-                targetTime: targetTime,
-                hit: false,
-                visualType: map.visual
-            });
-            currentIndex++;
-        }
+        const wordId = Math.random().toString(36).substring(2, 9);
+        const chars = word.toLowerCase().split('');
+
+        chars.forEach((char, index) => {
+            const map = KEY_MAPPINGS[char];
+            if (map) {
+                const targetTime = startTime + (currentIndex * msPerBeat);
+                notes.push({
+                    id: Math.random().toString(36).substring(2, 9),
+                    char: char,
+                    lane: map.lane,
+                    spawnTime: targetTime - spawnPreTime,
+                    targetTime: targetTime,
+                    hit: false,
+                    visualType: map.visual,
+                    wordId: wordId,
+                    wordIndex: index
+                });
+                currentIndex++;
+            }
+        });
+
+        // Add space (pause) after each word
+        currentIndex += 0.5;
     }
 
     return notes;

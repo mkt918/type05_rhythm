@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+@keyframes laser-shoot {
+  0% { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(0); opacity: 0; }
+}
+
+.animate-laser {
+  animation: laser-shoot 0.15s linear forwards;
+  transform-origin: bottom;
+}
+
+@keyframes invader-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.animate-float {
+  animation: invader-float 1.5s ease-in-out infinite;
+}
+
+@keyframes explosion {
+  0% { transform: scale(0.5); opacity: 1; filter: brightness(2); }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.animate-explosion {
+  animation: explosion 0.3s ease-out forwards;
+}
