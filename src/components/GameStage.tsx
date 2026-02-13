@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { LANE_CONFIGS, GAME_CONSTANTS, WORD_LIST } from '../constants';
-import type { Note, GameState, SkinEquip, ResultData } from '../types';
+import type { Note, GameState, SkinEquip, ResultData, MissionConfig } from '../types';
 import { calcRank, calcCoins } from '../utils/rank';
 import { Lane } from './Lane';
 import { Note as NoteComponent } from './Note';
@@ -10,11 +10,10 @@ import { generateNotes } from '../utils/noteGenerator';
 import { playHitSound, initAudio } from '../utils/audio';
 
 const { JUDGEMENT_LINE_Y, HIT_WINDOW } = GAME_CONSTANTS;
-const WORD_COUNT = 10;
 
-function buildSong() {
+function buildSong(wordCount: number) {
     const shuffled = [...WORD_LIST].sort(() => Math.random() - 0.5);
-    const words = shuffled.slice(0, WORD_COUNT);
+    const words = shuffled.slice(0, wordCount);
     const romajiText = words.map(w => w.romaji).join(' ');
     const displayWords = words.map(w => w.display);
     return { romajiText, displayWords };
@@ -22,10 +21,11 @@ function buildSong() {
 
 interface GameStageProps {
     skin: SkinEquip;
+    mission: MissionConfig;
     onGameEnd: (result: ResultData) => void;
 }
 
-export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
+export const GameStage = ({ skin, mission, onGameEnd }: GameStageProps) => {
     const [gameState, setGameState] = useState<GameState>({
         isPlaying: false,
         startTime: 0,
@@ -87,8 +87,8 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
         judgeCountRef.current = { perfect: 0, good: 0, ok: 0, miss: 0 };
         gameEndedRef.current = false;
         setHasBomb(true);
-        const { romajiText: rt, displayWords: dw } = buildSong();
-        const initialNotes = generateNotes(rt, 80, 4000, GAME_CONSTANTS.SPAWN_PRE_TIME);
+        const { romajiText: rt, displayWords: dw } = buildSong(mission.wordCount);
+        const initialNotes = generateNotes(rt, mission.bpm, 4000, mission.spawnPreTime);
         setRomajiText(rt);
         setDisplayWords(dw);
         setNotes(initialNotes);
@@ -321,6 +321,7 @@ export const GameStage = ({ skin, onGameEnd }: GameStageProps) => {
 
             {!gameState.isPlaying && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white z-50 text-center">
+                    <div className="text-green-400 font-mono text-sm tracking-widest mb-2 opacity-70">{mission.label} — {mission.description}</div>
                     <h1 className="text-6xl font-black mb-4 tracking-tighter text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.5)]">TYPE INVADER</h1>
                     <p className="animate-pulse font-mono text-xl">PRESS SPACE TO START</p>
                 </div>

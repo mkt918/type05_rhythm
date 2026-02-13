@@ -31,7 +31,17 @@ export interface GameState {
     maxCombo: number;
 }
 
-export type Screen = 'title' | 'game' | 'result' | 'shop';
+export type Screen = 'title' | 'briefing' | 'game' | 'result' | 'shop';
+
+export interface MissionConfig {
+    id: number;
+    label: string;
+    bpm: number;
+    noteSpeed: number;
+    spawnPreTime: number;
+    wordCount: number;
+    description: string;
+}
 export type Rank = 'S' | 'A' | 'B' | 'C' | 'D';
 export type NoteShape = 'circle' | 'square' | 'diamond';
 export type ColorTheme = 'default' | 'neon' | 'pastel';
@@ -61,4 +71,5 @@ export interface PlayerData {
     coins: number;
     ownedSkins: string[];
     equippedSkin: SkinEquip;
+    currentMission: number; // 解放済み最大ミッションID
 }

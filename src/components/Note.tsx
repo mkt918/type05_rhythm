@@ -102,10 +102,10 @@ export const Note = ({ note, y, colorName, laneIndex }: NoteProps) => {
 
             {/* 球体（文字入り） */}
             <div
-                className={`w-9 h-9 rounded-full border-2 ${borderClass} bg-black/80 flex items-center justify-center`}
+                className={`w-11 h-11 rounded-full border-2 ${borderClass} bg-black/80 flex items-center justify-center`}
                 style={{ boxShadow: `0 0 8px currentColor` }}
             >
-                <span className={`${colorClass} text-base font-bold font-mono leading-none`}>
+                <span className="text-white text-xl font-black font-mono leading-none drop-shadow-[0_0_4px_white]">
                     {note.char.toUpperCase()}
                 </span>
             </div>

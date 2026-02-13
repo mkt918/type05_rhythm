@@ -11,6 +11,7 @@ export const DEFAULT_PLAYER_DATA: PlayerData = {
         bgEffect: 'none',
         feedbackStyle: 'default',
     },
+    currentMission: 1,
 };
 
 export function loadPlayerData(): PlayerData {
