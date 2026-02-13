@@ -1,12 +1,12 @@
 @import "tailwindcss";
 
-@keyframes laser-shoot {
-  0% { transform: scaleY(1); opacity: 1; }
-  100% { transform: scaleY(0); opacity: 0; }
+@keyframes laser-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .animate-laser {
-  animation: laser-shoot 0.15s linear forwards;
+  animation: laser-flicker 0.1s linear infinite;
   transform-origin: bottom;
 }
 

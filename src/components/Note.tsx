@@ -73,31 +73,41 @@ const Invader3 = () => (
 
 export const Note = ({ note, y, colorName, laneIndex }: NoteProps) => {
     // Map visualType to Invader variant
-    const IvaderComponent =
+    const InvaderComponent =
         note.visualType === 'upper' ? Invader1 :
             note.visualType === 'middle' ? Invader2 :
                 Invader3;
 
-    // Use Tailwind colors directly for text-color (which fills the SVG)
     const colorClass = `text-${colorName}-400`;
+    const bgClass = `bg-${colorName}-400`;
+    const borderClass = `border-${colorName}-400`;
     const leftPercent = ((laneIndex + 0.5) / TOTAL_LANES) * 100;
 
     return (
         <div
-            className={`absolute -translate-x-1/2 -translate-y-1/2 w-12 h-12 flex flex-col items-center justify-center font-bold pointer-events-none transform-gpu z-10 animate-float`}
+            className={`absolute -translate-x-1/2 flex flex-col items-center pointer-events-none transform-gpu z-10 animate-float`}
             style={{
                 top: `${y}%`,
                 left: `${leftPercent}%`,
-                filter: `drop-shadow(0 0 4px currentColor)`
+                filter: `drop-shadow(0 0 6px currentColor)`
             }}
         >
-            <div className={`w-full h-full ${colorClass}`}>
-                <IvaderComponent />
+            {/* インベーダー本体 */}
+            <div className={`w-10 h-10 ${colorClass}`}>
+                <InvaderComponent />
             </div>
 
-            {/* Character on top */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-xl drop-shadow-md">
-                {note.char.toUpperCase()}
+            {/* 接続線（インベーダーと球体をつなぐ） */}
+            <div className={`w-[2px] h-2 ${bgClass} opacity-70`} />
+
+            {/* 球体（文字入り） */}
+            <div
+                className={`w-9 h-9 rounded-full border-2 ${borderClass} bg-black/80 flex items-center justify-center`}
+                style={{ boxShadow: `0 0 8px currentColor` }}
+            >
+                <span className={`${colorClass} text-base font-bold font-mono leading-none`}>
+                    {note.char.toUpperCase()}
+                </span>
             </div>
         </div>
     );
